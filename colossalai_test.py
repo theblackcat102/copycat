@@ -120,7 +120,7 @@ def main():
     # )
 
     steps = 0
-    NUM_STEPS = len(1000)*gpc.config.NUM_EPOCHS
+    NUM_STEPS = 1000*gpc.config.NUM_EPOCHS
     torch.cuda.synchronize()
     model.train()
 
