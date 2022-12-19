@@ -129,7 +129,9 @@ if __name__ == "__main__":
     print(len(dataset))
     dataloader = DataLoader(dataset, collate_fn=DataCollatorForSeq2Seq(dataset.tokenizer, model,max_length=402), batch_size=128, num_workers=10)
     for batch in dataloader:
-        batch = batch.to('cuda')
+        # batch = batch.to('cuda')
+        print(batch.__dict__)
+        print(batch['attention_mask'])
         print(batch.keys())
         break
     #     print(batch['input_ids'][0])
