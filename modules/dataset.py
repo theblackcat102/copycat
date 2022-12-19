@@ -8,7 +8,6 @@ from bs4 import BeautifulSoup
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, DataCollatorForSeq2Seq
 
-tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
 
 @lru_cache()
 def clean_text(answer_txt):
@@ -27,7 +26,7 @@ def clean_text(answer_txt):
         clean_text = answer_txt
     return clean_text
 
-def load_dataset(path='dataset/sharegpt', input_limit=400):
+def load_dataset(tokenizer, path='dataset/sharegpt', input_limit=400):
     pairs = []
     dedupe = []
     for json_file in tqdm(glob.glob(os.path.join(path, '*.json'))):
@@ -44,9 +43,6 @@ def load_dataset(path='dataset/sharegpt', input_limit=400):
         if first_txt in dedupe:
             continue
         dedupe.append(first_txt)
-        if len(pairs) > 1000:
-            break
-
 
         # start process text
         for idx in range(0, len(items), 2):
@@ -90,22 +86,22 @@ class ChatGPT(Dataset):
 
     def __init__(self, datapath='dataset/sharegpt', tokenizer_name="google/mt5-small") -> None:
         super().__init__()
-        self.pairs = load_dataset(datapath)
         if isinstance(tokenizer_name, str):
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         else:
             self.tokenizer = tokenizer_name
+        self.pairs = load_dataset(self.tokenizer, datapath)
     
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
         prompt, answer = self.pairs[idx]
-        input_encodings = self.tokenizer(prompt, max_length=401,
+        input_encodings = self.tokenizer(prompt, max_length=301,
                                         truncation=True)
 
         with self.tokenizer.as_target_tokenizer():
-            target_encodings = self.tokenizer(answer, max_length=501,
+            target_encodings = self.tokenizer(answer, max_length=401,
                                         truncation=True)
 
         return {
@@ -124,6 +120,8 @@ if __name__ == "__main__":
         if not os.path.exists('dataset/sharegpt_train/'+json_basename) and not \
             os.path.exists('dataset/sharegpt_val/'+json_basename):
             shutil.copyfile(json_file, 'dataset/sharegpt_train/'+json_basename)
+
+    tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
 
     model = AutoModelForSeq2SeqLM.from_pretrained("google/mt5-small")
     dataset = ChatGPT('dataset/sharegpt_val')
