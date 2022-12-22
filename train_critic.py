@@ -125,8 +125,8 @@ class RewardModel(pl.LightningModule):
 if __name__ == "__main__":
     pretrain_name='bigscience/bloomz-560m'
     model_name = pretrain_name.split('/')[-1]
-    epochs = 50
-    lr = 1e-6
+    epochs = 10
+    lr = 3e-5
     
     val_dataset = WebGPTReward(mode='val')
     print(len(val_dataset))
@@ -134,8 +134,8 @@ if __name__ == "__main__":
     print(len(train_dataset))
     val_dataloader = DataLoader(val_dataset, collate_fn=CollateFN(pretrain_name, max_length=350), batch_size=8)
     train_dataloader = DataLoader(train_dataset,
-        collate_fn=CollateFN(pretrain_name, max_length=220),
-        batch_size=16, shuffle=True
+        collate_fn=CollateFN(pretrain_name, max_length=200),
+        batch_size=18, shuffle=True
     )
 
     total_iterations = len(train_dataloader)*epochs
