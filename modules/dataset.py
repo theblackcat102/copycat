@@ -22,6 +22,9 @@ def clean_text(answer_txt):
             for para in soup.find_all('p'):
                 clean_text = para.text+'\n'
             clean_text = clean_text.strip()
+
+        if 'Copy code`' in clean_text:
+            clean_text = clean_text.replace('Copy code`','')
     else:
         clean_text = answer_txt
     return clean_text
@@ -55,16 +58,16 @@ def load_dataset(tokenizer, path='dataset/sharegpt', input_limit=400):
                 question_txt = question['value']
             elif idx > 2 and len(question['value']) < input_limit:
                 convo = items[idx-2:idx+1]
-                text = ' <sep> '.join([ clean_text(c['value']) if c['from'] == 'gpt' else c['value'].strip() for c in convo ])
+                text = ' '.join([ ' <bot> '+clean_text(c['value']) if c['from'] == 'gpt' else ' <sep> '+c['value'].strip() for c in convo ])
                 start_idx = idx-2
 
                 while len(text) < 500 and start_idx >= 0:
                     convo = items[max(start_idx, 0):idx+1]
-                    text = '<sep>'.join([ clean_text(c['value']) if c['from'] == 'gpt' else c['value'].strip() for c in convo ])
+                    text = ' '.join([ ' <bot> '+clean_text(c['value']) if c['from'] == 'gpt' else ' <sep> '+c['value'].strip() for c in convo ])
                     start_idx -= 1
 
                 convo = items[max(start_idx, 0):idx+1]
-                text = '<sep>'.join([ clean_text(c['value']) if c['from'] == 'gpt' else c['value'].strip() for c in convo ])
+                text = ' '.join([ ' <bot> '+clean_text(c['value']) if c['from'] == 'gpt' else ' <sep> '+c['value'].strip() for c in convo ])
                 if len(text) <= 500:
                     question_txt = text
                 else:
@@ -76,7 +79,8 @@ def load_dataset(tokenizer, path='dataset/sharegpt', input_limit=400):
             assert response['from'] == 'gpt'
             answer_txt = clean_text(response['value'])
             if len(question_txt) and len(answer_txt):
-                pairs.append((question_txt, answer_txt))
+                # prevent newline from eaten by mt
+                pairs.append((question_txt.replace('\n', '\\n')+' <bot>', answer_txt.replace('\n', '\\n')))
 
     del dedupe
 
@@ -110,10 +114,24 @@ class ChatGPT(Dataset):
                 "labels": target_encodings["input_ids"]
                 }
 
+
+class WebGPT(Dataset):
+
+    def __init__(self) -> None:
+        super().__init__()
+        from datasets import load_dataset
+        dataset = load_dataset("openai/webgpt_comparisons")
+
+
 if __name__ == "__main__":
     import shutil
     from torch.utils.data import DataLoader
     from transformers import AutoModelForSeq2SeqLM
+
+    from datasets import load_dataset
+    dataset = load_dataset("openai/webgpt_comparisons")
+    print(dataset.keys())
+    print(len(dataset['train']))
 
     for json_file in glob.glob('dataset/sharegpt/*.json'):
         json_basename = os.path.basename(json_file)
@@ -121,18 +139,18 @@ if __name__ == "__main__":
             os.path.exists('dataset/sharegpt_val/'+json_basename):
             shutil.copyfile(json_file, 'dataset/sharegpt_train/'+json_basename)
 
-    tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
+    # tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
 
-    model = AutoModelForSeq2SeqLM.from_pretrained("google/mt5-small")
-    dataset = ChatGPT('dataset/sharegpt_val')
-    dataset = ChatGPT('dataset/sharegpt_train')
-    print(len(dataset))
-    dataloader = DataLoader(dataset, collate_fn=DataCollatorForSeq2Seq(dataset.tokenizer, model,max_length=402), batch_size=128, num_workers=10)
-    for batch in dataloader:
-        # batch = batch.to('cuda')
-        print(batch.__dict__)
-        print(batch['attention_mask'])
-        print(batch.keys())
-        break
+    # model = AutoModelForSeq2SeqLM.from_pretrained("google/mt5-small")
+    # dataset = ChatGPT('dataset/sharegpt_val')
+    # dataset = ChatGPT('dataset/sharegpt_train')
+    # print(len(dataset))
+    # dataloader = DataLoader(dataset, collate_fn=DataCollatorForSeq2Seq(dataset.tokenizer, model,max_length=402), batch_size=128, num_workers=10)
+    # for batch in dataloader:
+    #     # batch = batch.to('cuda')
+    #     print(batch.__dict__)
+    #     print(batch['attention_mask'])
+    #     print(batch.keys())
+    #     break
     #     print(batch['input_ids'][0])
     #     print(batch['decoder_input_ids'][0])

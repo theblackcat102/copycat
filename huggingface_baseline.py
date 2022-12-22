@@ -7,15 +7,15 @@ import utils
 
 if __name__ == "__main__":
     # model_name = "google/mt5-base"
-    model_name = "bigscience/mt0-base"
+    model_name = "bigscience/mt0-large"
     model_saved_name = model_name.split("/")[-1]
 
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.add_special_tokens({'sep_token': '<sep>'})
-    model, percent_reset = utils.search_and_reset_layers(model, tokenizer, scale_down_factor=5, revert_old=False, device='cuda')
-    print(percent_reset)
-    model.resize_token_embeddings(len(tokenizer))
+    tokenizer.add_special_tokens({'sep_token': '<sep>', 'bot_token': '<bot>'})
+    # model, percent_reset = utils.search_and_reset_layers(model, tokenizer, scale_down_factor=5, revert_old=False, device='cuda')
+    # print(percent_reset)
+    # model.resize_token_embeddings(len(tokenizer))
 
     args = Seq2SeqTrainingArguments( 
         output_dir=f"{model_name}-finetuned", 
@@ -23,12 +23,13 @@ if __name__ == "__main__":
         deepspeed='zero3_config.json',
         num_train_epochs=40, 
         warmup_steps=1000,
-        learning_rate=1.5e-5,
+        learning_rate=3e-5,
+        label_smoothing_factor=0.01,
         # half_precision_backend="apex",
         # gradient_checkpointing=True,
         gradient_accumulation_steps=20,
-        per_device_train_batch_size=6,
-        per_device_eval_batch_size=12,
+        per_device_train_batch_size=3,
+        per_device_eval_batch_size=5,
         weight_decay=0.01,
         max_grad_norm=2.0,
         logging_steps=10,
