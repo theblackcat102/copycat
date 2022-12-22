@@ -38,7 +38,7 @@ class WebGPTReward(Dataset):
 
     def __getitem__(self, index):
         row = self.dataset[index]
-        return row['question']+' </s> '+row['pos'], row['question']+' </s> '+row['pos']
+        return row['question'], row['pos'], row['neg']
 
 class CollateFN():
     def __init__(self, pretrain_name, max_length=400) -> None:
@@ -46,14 +46,16 @@ class CollateFN():
         self.max_length = max_length
 
     def __call__(self, batch):
+        questions = []
         pos_sentences = []
         neg_sentences = []
-        for (pos, neg) in batch:
+        for (question, pos, neg) in batch:
+            questions.append(question)
             pos_sentences.append(pos)
             neg_sentences.append(neg)
 
-        return self.tokenizer(pos_sentences, return_tensors='pt', max_length=self.max_length, padding=True, truncation=True),\
-            self.tokenizer(neg_sentences, return_tensors='pt', max_length=self.max_length, padding=True, truncation=True)
+        return self.tokenizer(questions, pos_sentences, return_tensors='pt', max_length=self.max_length, padding=True, truncation=True),\
+            self.tokenizer(questions, neg_sentences, return_tensors='pt', max_length=self.max_length, padding=True, truncation=True)
 
 
 def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
@@ -75,18 +77,19 @@ class RewardModel(pl.LightningModule):
         super().__init__()
         self.model = AutoModelForSequenceClassification.from_pretrained(pretrain_name, num_labels=1, problem_type='regression')
         self.lr = lr
+        self.log_sigmoid = nn.LogSigmoid()
         self.num_training_steps = total_iterations
         self.num_warmup_steps = num_warmup_steps
 
     def forward(self, batch):
         return self.model(**batch)
 
-
     def training_step(self, batch, batch_idx):
         pos_batch, neg_batch = batch
         pos_output = self.forward(pos_batch)
         neg_output = self.forward(neg_batch)
-        loss = -torch.log(torch.sigmoid(pos_output.logits - neg_output.logits))
+        # print(pos_output.logits, pos_output.logits[:10])
+        loss = -self.log_sigmoid(pos_output.logits - neg_output.logits)
         loss = loss.mean()
         self.log('train/loss', loss)
         return loss
@@ -123,16 +126,24 @@ if __name__ == "__main__":
     pretrain_name='bigscience/bloomz-560m'
     model_name = pretrain_name.split('/')[-1]
     epochs = 50
+    lr = 1e-6
     
     val_dataset = WebGPTReward(mode='val')
     print(len(val_dataset))
     train_dataset = WebGPTReward(mode='train')
     print(len(train_dataset))
     val_dataloader = DataLoader(val_dataset, collate_fn=CollateFN(pretrain_name, max_length=350), batch_size=8)
-    train_dataloader = DataLoader(train_dataset, collate_fn=CollateFN(pretrain_name, max_length=220), batch_size=16)
+    train_dataloader = DataLoader(train_dataset,
+        collate_fn=CollateFN(pretrain_name, max_length=220),
+        batch_size=16, shuffle=True
+    )
 
     total_iterations = len(train_dataloader)*epochs
-    model = RewardModel(pretrain_name, num_warmup_steps=1000, total_iterations=total_iterations)
+    model = RewardModel(pretrain_name,
+            num_warmup_steps=1000,
+            total_iterations=total_iterations,
+            lr=lr
+        )
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     checkpoint_callback = ModelCheckpoint(monitor="val_loss",
