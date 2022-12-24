@@ -2,7 +2,6 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments, trainer
 from modules.dataset import ChatGPT, DataCollatorForSeq2Seq
-import utils
 
 
 if __name__ == "__main__":
@@ -12,10 +11,10 @@ if __name__ == "__main__":
 
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.add_special_tokens({'sep_token': '<sep>', 'bot_token': '<bot>'})
+    tokenizer.add_special_tokens({'sep_token': '<sep>', 'bos_token': '<bot>'})
     # model, percent_reset = utils.search_and_reset_layers(model, tokenizer, scale_down_factor=5, revert_old=False, device='cuda')
     # print(percent_reset)
-    # model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer))
 
     args = Seq2SeqTrainingArguments( 
         output_dir=f"{model_name}-finetuned", 
