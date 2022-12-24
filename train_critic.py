@@ -193,11 +193,15 @@ class RewardModel(pl.LightningModule):
         neg_output = self.forward(neg_batch)
         neg_output2 = self.forward(neg_batch2)
         # print(pos_output.logits, pos_output.logits[:10])
+
         # loss = -self.log_sigmoid(pos_output.logits - neg_output.logits)
         # loss = loss.mean()
-        loss = self.xentropy(torch.cat([pos_output.logits, neg_output.logits, neg_output2.logits], dim=-1),
+
+        choice_logits = torch.cat([pos_output.logits, neg_output.logits, neg_output2.logits], dim=-1)
+        loss = self.xentropy(choice_logits,
                 torch.zeros(pos_output.logits.shape[0], device=pos_output.logits.device, dtype=torch.long)
             )
+
         num_acc_examples = pos_batch.input_ids.shape[0]
         num_correct_examples = torch.count_nonzero(pos_output.logits > neg_output.logits).item()
         self.log('train/acc', num_correct_examples/num_acc_examples)
@@ -250,8 +254,8 @@ def convert_checkpoint2huggingface(checkpoint_path, pretrain_name, output_name):
 
 if __name__ == "__main__":
     pretrain_name='bigscience/bloomz-560m'
-    pretrain_name = 'roberta-large'
-    pretrain_name = 'google/electra-large-discriminator'
+    pretrain_name = 'roberta-base'
+    # pretrain_name = 'google/electra-large-discriminator'
     # pretrain_name = 'gpt2-large'
     # pretrain_name = 'openai/gpt2-base'
     model_name = pretrain_name.split('/')[-1]
