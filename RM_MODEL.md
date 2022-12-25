@@ -38,6 +38,11 @@ Other models I had tried
 Tensorboard logs are located under runs/
 
 
+# Training
+
+```
+python train_critic.py
+```
 
 # Note:
 
