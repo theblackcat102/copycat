@@ -10,7 +10,7 @@ re_reference_remove = re.compile(r'\[([0-9])+\]')
 # ideally we should generate results from multiple model
 pretrain_model = 'google/flan-t5-base'
 use_cuda = True
-top_k = 5
+num_top_k = 5
 model = AutoModelForSeq2SeqLM.from_pretrained(pretrain_model).eval()
 tokenizer = AutoTokenizer.from_pretrained(pretrain_model)
 dataset = load_dataset("openai/webgpt_comparisons")
@@ -36,11 +36,10 @@ if __name__ == "__main__":
             )
             texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
             answers = texts #[row['answer_0'], row['answer_1']]+texts
-            answers = [re_reference_remove.sub('', row['answer_0']), re_reference_remove.sub('',row['answer_1'])]+texts
             inputs = critic_tokenizer([question]*len(answers), answers, return_tensors="pt", padding=True, truncation=True)
             if use_cuda:
                 inputs = {key: value.cuda() for key, value in inputs.items() }
             ranks = critic(**inputs).logits.flatten()
-            top_k = torch.topk(ranks, top_k, 0).indices
+            top_k = torch.topk(ranks, num_top_k, 0).indices
             fout.write(json.dumps({'idx': idx, 'question': question, 'negatives': [answers[idx] for idx in top_k] })+'\n')
 
