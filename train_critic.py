@@ -273,18 +273,19 @@ def convert_checkpoint2huggingface(checkpoint_path, pretrain_name, output_name):
 
 if __name__ == "__main__":
     pretrain_name='bigscience/bloomz-560m'
-    pretrain_name = 'roberta-base'
+    # pretrain_name = 'roberta-base'
     # pretrain_name = 'google/electra-base-discriminator'
     # pretrain_name = 'gpt2-large'
     # pretrain_name = 'openai/gpt2-base'
     model_name = pretrain_name.split('/')[-1]
     epochs = 5 if 'large' in pretrain_name else 5 # webgpt RM finetuned for 2 epochs
-    batch_size = 13 if 'large' in pretrain_name else 36
+    # batch_size = 13 if 'large' in pretrain_name else 36
+    batch_size = 10
     # try to follow WebGPT RM batch size
     accumulate_grad_batches = math.ceil(64/batch_size)
     lr = 3e-6
-    # additional_dataset = 'generated_negatives.jsonl'
-    additional_dataset = None
+    additional_dataset = 'generated_negatives.jsonl'
+    # additional_dataset = None
     val_dataset = WebGPTDataset(mode='val', additional_dataset=additional_dataset)
     print(len(val_dataset))
     train_dataset = WebGPTDataset(mode='train', additional_dataset=additional_dataset)
