@@ -1,11 +1,10 @@
 # Copycat
 
 ```
-pip install colossalai==0.1.12+torch1.12cu11.3 -f https://release.colossalai.org           
+pip install colossalai==0.1.12+torch1.12cu11.3 -f https://release.colossalai.org
 pip install torch==1.12.0+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
 pip install transformers
 ```
-
 
 Test running colossalai code
 
@@ -18,7 +17,6 @@ colossalai run --nproc_per_node 1 colossalai_test.py --use_trainer
 You will need to install the version from here:
 
 [PhungVanDuy/trlx](https://github.com/PhungVanDuy/trlx/tree/add_t5)
-
 
 # Notes
 

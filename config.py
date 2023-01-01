@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from colossalai.amp import AMP_TYPE
 
 BATCH_SIZE = 2

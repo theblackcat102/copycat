@@ -1,21 +1,22 @@
+# -*- coding: utf-8 -*-
 from functools import partial
 from time import time
 
+import colossalai
 import psutil
 import torch
 import torch.nn as nn
-from packaging import version
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-import colossalai
 from colossalai.logging import disable_existing_loggers, get_dist_logger
 from colossalai.nn.optimizer import HybridAdam
 from colossalai.nn.optimizer.gemini_optimizer import GeminiAdamOptimizer
 from colossalai.nn.optimizer.zero_optimizer import ZeroOptimizer
 from colossalai.nn.parallel import ZeroDDP
-from colossalai.tensor import ColoParameter, ComputePattern, ComputeSpec, ProcessGroup, ReplicaSpec, ShardSpec
+from colossalai.tensor import (ColoParameter, ComputePattern, ComputeSpec,
+                               ProcessGroup, ReplicaSpec, ShardSpec)
 from colossalai.utils import get_current_device
 from colossalai.utils.model.colo_init_context import ColoInitContext
+from packaging import version
+from torch.nn.parallel import DistributedDataParallel as DDP
 from transformers import GPT2Config, GPT2LMHeadModel
 
 
@@ -24,7 +25,7 @@ def parse_args():
     parser.add_argument(
         "--distplan",
         type=str,
-        default='colossalai',
+        default="colossalai",
         help="The distributed plan [colossalai, ddp, zero].",
     )
     parser.add_argument(
@@ -36,15 +37,14 @@ def parse_args():
     parser.add_argument(
         "--placement",
         type=str,
-        default='cpu',
+        default="cpu",
         help="Placement Policy for Gemini. Valid when using colossalai as dist plan.",
     )
     parser.add_argument(
         "--shardinit",
         type=bool,
         default=False,
-        help=
-        "Shard the tensors when init the model to shrink peak memory size on the assigned device. Valid when using colossalai as dist plan.",
+        help="Shard the tensors when init the model to shrink peak memory size on the assigned device. Valid when using colossalai as dist plan.",
     )
     args = parser.parse_args()
     return args
@@ -66,33 +66,40 @@ def split_param_col_tp1d(param: ColoParameter, pg: ProcessGroup):
 
 ## Define the Model and Loss Based on Huggingface transformers GPT2LMHeadModel
 class GPTLMModel(nn.Module):
-
-    def __init__(self,
-                 hidden_size=768,
-                 num_layers=12,
-                 num_attention_heads=12,
-                 max_seq_len=1024,
-                 vocab_size=50257,
-                 checkpoint=False):
+    def __init__(
+        self,
+        hidden_size=768,
+        num_layers=12,
+        num_attention_heads=12,
+        max_seq_len=1024,
+        vocab_size=50257,
+        checkpoint=False,
+    ):
         super().__init__()
         self.checkpoint = checkpoint
         self.model = GPT2LMHeadModel(
-            GPT2Config(n_embd=hidden_size,
-                       n_layer=num_layers,
-                       n_head=num_attention_heads,
-                       n_positions=max_seq_len,
-                       n_ctx=max_seq_len,
-                       vocab_size=vocab_size))
+            GPT2Config(
+                n_embd=hidden_size,
+                n_layer=num_layers,
+                n_head=num_attention_heads,
+                n_positions=max_seq_len,
+                n_ctx=max_seq_len,
+                vocab_size=vocab_size,
+            )
+        )
         if checkpoint:
             self.model.gradient_checkpointing_enable()
 
     def forward(self, input_ids, attention_mask):
         # Only return lm_logits
-        return self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=not self.checkpoint)[0]
+        return self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=not self.checkpoint,
+        )[0]
 
 
 class GPTLMLoss(nn.Module):
-
     def __init__(self):
         super().__init__()
         self.loss_fn = nn.CrossEntropyLoss()
@@ -101,26 +108,36 @@ class GPTLMLoss(nn.Module):
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         # Flatten the tokens
-        return self.loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        return self.loss_fn(
+            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+        )
 
 
 ## Randomly Generated Data
 def get_data(batch_size, seq_len, vocab_size):
-    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=torch.cuda.current_device())
+    input_ids = torch.randint(
+        0, vocab_size, (batch_size, seq_len), device=torch.cuda.current_device()
+    )
     attention_mask = torch.ones_like(input_ids)
     return input_ids, attention_mask
 
 
 def gpt2_medium(checkpoint=False):
-    return GPTLMModel(hidden_size=1024, num_layers=24, num_attention_heads=16, checkpoint=checkpoint)
+    return GPTLMModel(
+        hidden_size=1024, num_layers=24, num_attention_heads=16, checkpoint=checkpoint
+    )
 
 
 def gpt2_xl(checkpoint=True):
-    return GPTLMModel(hidden_size=1600, num_layers=48, num_attention_heads=32, checkpoint=checkpoint)
+    return GPTLMModel(
+        hidden_size=1600, num_layers=48, num_attention_heads=32, checkpoint=checkpoint
+    )
 
 
 def gpt2_10b(checkpoint=True):
-    return GPTLMModel(hidden_size=4096, num_layers=50, num_attention_heads=16, checkpoint=checkpoint)
+    return GPTLMModel(
+        hidden_size=4096, num_layers=50, num_attention_heads=16, checkpoint=checkpoint
+    )
 
 
 def get_cpu_mem():
@@ -131,8 +148,8 @@ def get_gpu_mem():
     return torch.cuda.memory_allocated() / 1024**2
 
 
-def get_mem_info(prefix=''):
-    return f'{prefix}GPU memory usage: {get_gpu_mem():.2f} MB, CPU memory usage: {get_cpu_mem():.2f} MB'
+def get_mem_info(prefix=""):
+    return f"{prefix}GPU memory usage: {get_gpu_mem():.2f} MB, CPU memory usage: {get_cpu_mem():.2f} MB"
 
 
 def get_tflops(model_numel, batch_size, seq_len, step_time):
@@ -149,25 +166,25 @@ def tensor_parallelize(model: torch.nn.Module, pg: ProcessGroup):
     for mn, module in model.named_modules():
         for pn, param in module.named_parameters(recurse=False):
             # NOTE() a param maybe shared by tow modules
-            if hasattr(param, 'visited'):
+            if hasattr(param, "visited"):
                 continue
             param.set_dist_spec(ReplicaSpec())
-            if 'mlp.c_fc' in mn:
-                if 'weight' in pn or 'bias' in pn:
-                    split_param_col_tp1d(param, pg)    # colmn slice
+            if "mlp.c_fc" in mn:
+                if "weight" in pn or "bias" in pn:
+                    split_param_col_tp1d(param, pg)  # colmn slice
                     # keep the shape of the output from c_fc
                     param.compute_spec.set_output_replicate(False)
                 else:
                     param.set_dist_spec(ReplicaSpec())
-            elif 'mlp.c_proj' in mn:
-                if 'weight' in pn:
-                    split_param_row_tp1d(param, pg)    # row slice
+            elif "mlp.c_proj" in mn:
+                if "weight" in pn:
+                    split_param_row_tp1d(param, pg)  # row slice
                 else:
                     param.set_dist_spec(ReplicaSpec())
-            elif 'wte' in mn or 'wpe' in mn:
-                split_param_col_tp1d(param, pg)    # colmn slice
-            elif 'c_attn' in mn or 'c_proj' in mn:
-                split_param_col_tp1d(param, pg)    # colmn slice
+            elif "wte" in mn or "wpe" in mn:
+                split_param_col_tp1d(param, pg)  # colmn slice
+            elif "c_attn" in mn or "c_proj" in mn:
+                split_param_col_tp1d(param, pg)  # colmn slice
             else:
                 param.set_dist_spec(ReplicaSpec())
 
@@ -175,23 +192,33 @@ def tensor_parallelize(model: torch.nn.Module, pg: ProcessGroup):
 
 
 # Gemini + ZeRO DDP
-def gemini_zero_dpp(model: torch.nn.Module, pg: ProcessGroup, placememt_policy: str = "auto"):
+def gemini_zero_dpp(
+    model: torch.nn.Module, pg: ProcessGroup, placememt_policy: str = "auto"
+):
     cai_version = colossalai.__version__
     if version.parse(cai_version) > version.parse("0.1.10"):
         from colossalai.nn.parallel import GeminiDDP
-        model = GeminiDDP(model,
-                          device=get_current_device(),
-                          placement_policy=placememt_policy,
-                          pin_memory=True,
-                          search_range_mb=32)
-    elif version.parse(cai_version) <= version.parse("0.1.10") and version.parse(cai_version) >= version.parse("0.1.9"):
+
+        model = GeminiDDP(
+            model,
+            device=get_current_device(),
+            placement_policy=placememt_policy,
+            pin_memory=True,
+            search_range_mb=32,
+        )
+    elif version.parse(cai_version) <= version.parse("0.1.10") and version.parse(
+        cai_version
+    ) >= version.parse("0.1.9"):
         from colossalai.gemini import ChunkManager, GeminiManager
+
         chunk_size = ChunkManager.search_chunk_size(model, 64 * 1024**2, 32)
         gemini_manager = GeminiManager(placememt_policy, chunk_manager)
-        chunk_manager = ChunkManager(chunk_size,
-                                     pg,
-                                     enable_distributed_storage=True,
-                                     init_device=GeminiManager.get_default_device(placememt_policy))
+        chunk_manager = ChunkManager(
+            chunk_size,
+            pg,
+            enable_distributed_storage=True,
+            init_device=GeminiManager.get_default_device(placememt_policy),
+        )
         model = ZeroDDP(model, gemini_manager)
     else:
         raise NotImplemented(f"CAI version {cai_version} is not supported")
@@ -219,10 +246,14 @@ def main():
     if args.distplan == "colossalai":
         # all param must use the same process group.
         default_pg = ProcessGroup(tp_degree=args.tp_degree)
-        default_dist_spec = ShardSpec([-1], [args.tp_degree]) if args.shardinit else None
+        default_dist_spec = (
+            ShardSpec([-1], [args.tp_degree]) if args.shardinit else None
+        )
 
         # build GPT model
-        with ColoInitContext(device='cpu', default_dist_spec=default_dist_spec, default_pg=default_pg):
+        with ColoInitContext(
+            device="cpu", default_dist_spec=default_dist_spec, default_pg=default_pg
+        ):
             model = gpt2_xl(checkpoint=True)
 
         pg = default_pg
@@ -235,7 +266,7 @@ def main():
         optimizer = GeminiAdamOptimizer(model, lr=1e-3, initial_scale=2**5)
         # optimizer = HybridAdam(model.parameters(), lr=1e-3)
         # optimizer = ZeroOptimizer(optimizer, model, initial_scale=2**5)
-        logger.info(get_mem_info(prefix='After init optim, '), ranks=[0])
+        logger.info(get_mem_info(prefix="After init optim, "), ranks=[0])
 
     elif args.distplan == "ddp":
         model = gpt2_xl(checkpoint=True).cuda()
@@ -244,14 +275,17 @@ def main():
 
     elif args.distplan == "zero":
         from torch.distributed.optim import ZeroRedundancyOptimizer
+
         model = gpt2_xl(checkpoint=True).cuda()
         ddp_model = DDP(model)
-        optimizer = ZeroRedundancyOptimizer(ddp_model.parameters(), optimizer_class=torch.optim.Adam, lr=0.01)
+        optimizer = ZeroRedundancyOptimizer(
+            ddp_model.parameters(), optimizer_class=torch.optim.Adam, lr=0.01
+        )
     else:
         raise TypeError(f"{args.distplan} is error")
 
     numel = sum([p.numel() for p in model.parameters()])
-    logger.info(get_mem_info(prefix='After init model, '), ranks=[0])
+    logger.info(get_mem_info(prefix="After init model, "), ranks=[0])
     get_tflops_func = partial(get_tflops, numel, BATCH_SIZE, SEQ_LEN)
 
     torch.cuda.synchronize()
@@ -263,22 +297,25 @@ def main():
         start = time()
         outputs = model(input_ids, attn_mask)
         loss = criterion(outputs, input_ids)
-        logger.info(get_mem_info(prefix=f'[{n+1}/{NUM_STEPS}] Forward '), ranks=[0])
+        logger.info(get_mem_info(prefix=f"[{n+1}/{NUM_STEPS}] Forward "), ranks=[0])
         if args.distplan == "colossalai":
             optimizer.backward(loss)
         elif args.distplan in ["ddp", "zero"]:
             loss.backward()
 
-        logger.info(get_mem_info(prefix=f'[{n+1}/{NUM_STEPS}] Backward '), ranks=[0])
+        logger.info(get_mem_info(prefix=f"[{n+1}/{NUM_STEPS}] Backward "), ranks=[0])
         optimizer.step()
-        logger.info(get_mem_info(prefix=f'[{n+1}/{NUM_STEPS}] Optimizer step '), ranks=[0])
+        logger.info(
+            get_mem_info(prefix=f"[{n+1}/{NUM_STEPS}] Optimizer step "), ranks=[0]
+        )
         step_time = time() - start
         logger.info(
-            f'[{n+1}/{NUM_STEPS}] Loss:{loss.item():.3f}, Step time: {step_time:.3f}s, TFLOPS: {get_tflops_func(step_time):.3f}',
-            ranks=[0])
+            f"[{n+1}/{NUM_STEPS}] Loss:{loss.item():.3f}, Step time: {step_time:.3f}s, TFLOPS: {get_tflops_func(step_time):.3f}",
+            ranks=[0],
+        )
 
     torch.cuda.synchronize()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

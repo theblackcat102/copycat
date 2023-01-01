@@ -1,23 +1,21 @@
+# -*- coding: utf-8 -*-
 import copy
-from pathlib import Path
 from collections import namedtuple
+from pathlib import Path
+from typing import Optional, Tuple
+
 import torch
+from beartype import beartype
 from torch import nn
 from tqdm import tqdm
-from beartype import beartype
-from typing import Tuple, Optional
+
 from modules.utils import eval_decorator
 
+PPOActionCriticReturn = namedtuple(
+    "PPOActionCriticReturn",
+    ["actions", "sequence", "mask", "prompt_mask", "action_logits", "values"],
+)
 
-
-PPOActionCriticReturn = namedtuple('PPOActionCriticReturn', [
-    'actions',
-    'sequence',
-    'mask',
-    'prompt_mask',
-    'action_logits',
-    'values'
-])
 
 @beartype
 class ActorCritic(nn.Module):
@@ -31,14 +29,11 @@ class ActorCritic(nn.Module):
 
         self.critic = critic
 
-
     def actor_parameters(self):
         if not self.actor_lora:
             return self.actor_palm.parameters()
 
-        return [
-            *self.actor_palm.finetune_parameters(self.actor_lora_scope)
-        ]
+        return [*self.actor_palm.finetune_parameters(self.actor_lora_scope)]
 
     def critic_parameters(self):
         return self.critic.parameters()
@@ -47,55 +42,43 @@ class ActorCritic(nn.Module):
     @eval_decorator
     def generate(
         self,
-        state, # prompt
+        state,  # prompt
         max_seq_len,
-        eos_token = None,
-        return_values = False,
+        eos_token=None,
+        return_values=False,
         **kwargs
     ):
         actions = self.actor_palm.generate(
             max_seq_len,
-            prompt = state,       
-            eos_token = eos_token,     
-            finetune_scope = self.actor_lora_scope,
-            use_tqdm = True,
+            prompt=state,
+            eos_token=eos_token,
+            finetune_scope=self.actor_lora_scope,
+            use_tqdm=True,
             **kwargs
         )
 
-        sequence = torch.cat((state, actions), dim = -1)
+        sequence = torch.cat((state, actions), dim=-1)
         action_len = actions.shape[-1]
         state_len = state.shape[-1]
 
-        prompt_mask = torch.arange(sequence.shape[-1], device = state.device) < state_len
-        prompt_mask = repeat(prompt_mask, 'n -> b n', b = sequence.shape[0])
+        prompt_mask = torch.arange(sequence.shape[-1], device=state.device) < state_len
+        prompt_mask = repeat(prompt_mask, "n -> b n", b=sequence.shape[0])
 
         mask = None
         if exists(eos_token):
-            mask = ((sequence == eos_token).cumsum(dim = -1) == 0)
-            mask = F.pad(mask, (1, -1), value = True) # include eos token
-        # we pair the question and answer into 
+            mask = (sequence == eos_token).cumsum(dim=-1) == 0
+            mask = F.pad(mask, (1, -1), value=True)  # include eos token
+        # we pair the question and answer into
         action_logits, value = self.forward(
-            sequence,
-            mask = mask,
-            return_values = return_values
+            sequence, mask=mask, return_values=return_values
         )
-        print(action_logits.shape, value.shape) 
+        print(action_logits.shape, value.shape)
 
         return PPOActionCriticReturn(
-            actions,
-            sequence,
-            mask,
-            prompt_mask,
-            action_logits,
-            value
+            actions, sequence, mask, prompt_mask, action_logits, value
         )
 
-    def forward(
-        self,
-        x,
-        mask = None,
-        return_values = True
-    ):  
+    def forward(self, x, mask=None, return_values=True):
         # we use this action_logits for finetuning later?
         action_logits = self.actor_palm(
             x,

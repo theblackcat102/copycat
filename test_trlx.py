@@ -1,4 +1,5 @@
-'''
+# -*- coding: utf-8 -*-
+"""
 
     Download full_data from unnatural instruction and unzip.
 
@@ -14,33 +15,45 @@
         - it is possible to do the same like my weight rescale method, but I would want to avoid this
 
 
-'''
+"""
+import json
 import os
+import random
+from typing import List
+
 import torch
 import yaml
-import random
-import trlx
-import json
-from typing import List
-from trlx.data.configs import TRLConfig
+from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from datasets import load_dataset
+
+import trlx
 from modules.utils import eval_decorator
+from trlx.data.configs import TRLConfig
+
+default_config = yaml.safe_load(open("configs/ppo_config_galatica.yml"))
 
 
-default_config = yaml.safe_load(open("configs/ppo_config_t5.yml"))
-class RM():
-
+class RM:
     def __init__(self, pretrain_model, max_length=300) -> None:
-        self.model = AutoModelForSequenceClassification.from_pretrained(pretrain_model).half().cuda()
+        self.model = (
+            AutoModelForSequenceClassification.from_pretrained(pretrain_model)
+            .half()
+            .cuda()
+        )
         self.model.eval()
         self.max_length = max_length
         self.tokenizer = AutoTokenizer.from_pretrained(pretrain_model)
 
     def __call__(self, samples):
-        tokens = self.tokenizer(samples, return_tensors='pt', max_length=self.max_length, padding=True, truncation=True)
-        tokens = { key: tensor.cuda() for key, tensor in tokens.items() }
+        tokens = self.tokenizer(
+            samples,
+            return_tensors="pt",
+            max_length=self.max_length,
+            padding=True,
+            truncation=True,
+        )
+        tokens = {key: tensor.cuda() for key, tensor in tokens.items()}
         with torch.no_grad():
             return self.model(**tokens).logits.cpu().numpy().tolist()
 
@@ -48,21 +61,27 @@ class RM():
         if offset is None:
             import re
 
-            re_reference_remove = re.compile(r'\[([0-9])+\]|\[([0-9])+,([0-9])+\]')
+            re_reference_remove = re.compile(r"\[([0-9])+\]|\[([0-9])+,([0-9])+\]")
             dataset = load_dataset("openai/webgpt_comparisons")
             scores = []
             with torch.no_grad():
-                for row in tqdm(dataset['train'], dynamic_ncols=True):
-                    question = row['question']['full_text']
-                    answer1 = re_reference_remove.sub('', row['answer_0'])
-                    answer2 = re_reference_remove.sub('', row['answer_1'])
-                    tokens = self.tokenizer([ question]*2, [answer1, answer2],
-                        return_tensors='pt', max_length=self.max_length, padding=True, truncation=True)
-                    tokens = { key: tensor.cuda() for key, tensor in tokens.items() }
+                for row in tqdm(dataset["train"], dynamic_ncols=True):
+                    question = row["question"]["full_text"]
+                    answer1 = re_reference_remove.sub("", row["answer_0"])
+                    answer2 = re_reference_remove.sub("", row["answer_1"])
+                    tokens = self.tokenizer(
+                        [question] * 2,
+                        [answer1, answer2],
+                        return_tensors="pt",
+                        max_length=self.max_length,
+                        padding=True,
+                        truncation=True,
+                    )
+                    tokens = {key: tensor.cuda() for key, tensor in tokens.items()}
                     scores.append(self.model(**tokens).logits)
-            offset = torch.mean(torch.cat(scores))        
+            offset = torch.mean(torch.cat(scores))
         state_dict = self.model.state_dict()
-        state_dict['classifier.out_proj.bias'] -= offset
+        state_dict["classifier.out_proj.bias"] -= offset
         self.model.load_state_dict(state_dict)
         print(offset)
 
@@ -75,19 +94,22 @@ def main(hparams={}):
     else:
         device = -1
 
-    rm_func = RM('theblackcat102/electra-large-webgpt-rm')
+    rm_func = RM("theblackcat102/electra-large-webgpt-rm")
     rm_func.reweight_model_logits(0.2001)
     dataset = load_dataset("openai/webgpt_comparisons")
-    prompts = [ row['question']['full_text'].replace('\n', '') for row in dataset['train']]
-    with open('full_data.jsonl', 'r') as f:
+    prompts = [
+        row["question"]["full_text"].replace("\n", "") for row in dataset["train"]
+    ]
+    with open("full_data.jsonl", "r") as f:
         for line in f:
             data = json.loads(line)
-            for instance in data['instances']:
-                prompts.append(instance['instruction_with_input'])
+            for instance in data["instances"]:
+                prompts.append(instance["instruction_with_input"])
     random.shuffle(prompts)
 
     trainer = trlx.train(reward_fn=rm_func, prompts=prompts, config=config)
     return trainer
+
 
 if __name__ == "__main__":
     main()

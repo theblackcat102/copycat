@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 
 
 def eval_decorator(fn):
@@ -7,4 +8,5 @@ def eval_decorator(fn):
         out = fn(self, *args, **kwargs)
         self.train(was_training)
         return out
+
     return inner

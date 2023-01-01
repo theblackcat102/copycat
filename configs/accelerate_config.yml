@@ -9,7 +9,7 @@ deepspeed_config:
   zero3_init_flag: false
   zero_stage: 2
 distributed_type: DEEPSPEED
-downcast_bf16: 'no'
+downcast_bf16: "no"
 dynamo_backend: INDUCTOR
 fsdp_config: {}
 gpu_ids: null
